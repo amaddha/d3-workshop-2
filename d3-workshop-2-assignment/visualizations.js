@@ -52,24 +52,24 @@ const colors = d3.schemeSet2;
 /**************************************************************************************************************************************/
 /**************************** TODO: Update colorDomain and colorRange to have the appropriate values **********************************/
 /**************************************************************************************************************************************/
-const colorDomain = undefined;
-const colorRange = undefined;
+const colorDomain = shows;
+const colorRange = colors;
 const colorScale = d3.scaleOrdinal().domain(colorDomain).range(colorRange);
 
 // scale function that maps the actors age to an x coordinate on the scatter plot
 /**************************************************************************************************************************************/
 /************************* TODO: Update scatterXDomain and scatterXRange to have the appropriate values *******************************/
 /**************************************************************************************************************************************/
-const scatterXDomain = undefined;
-const scatterXRange = undefined;
+const scatterXDomain = [0, 100]; 
+const scatterXRange = [0, scatterWidthPadded];
 const scatterXScale = d3.scaleLinear().domain(scatterXDomain).range(scatterXRange);
 
 // scale function that maps the number of episodes to a y coordinate on the scatter plot
 /**************************************************************************************************************************************/
 /************************* TODO: Update scatterYDomain and scatterYRange to have the appropriate values *******************************/
 /**************************************************************************************************************************************/
-const scatterYDomain = undefined;
-const scatterYRange = undefined;
+const scatterYDomain = [0, 10]; 
+const scatterYRange = [scatterHeightPadded, 0];
 const scatterYScale = d3.scaleLinear().domain(scatterYDomain).range(scatterYRange);
 
 // scale function that maps the total number of episodes to an x coordinate on the bar chart
@@ -85,7 +85,9 @@ let barYScale = d3.scaleBand().padding(0.4).align(0.5);
 /*********************** TODO: Append a fully transparent div with class "tooltip" to the body of the html ****************************/
 /*********************** TODO: Store this div in the scatterTooltip variable                               ****************************/
 /**************************************************************************************************************************************/
-const scatterTooltip = undefined;
+const scatterTooltip = d3.select('body').append('div')
+    .attr('class', 'tooltip')
+    .style('opacity', 0);
 
 /*****************************************************************************************************************************/
 /*********************************** EXTRA CREDIT (1): Create a tooltip for the bar chart  ***************************************/
@@ -100,7 +102,7 @@ function updateBars(data) {
     /**************************************************************************************************************************************/
     /************************* TODO: Set the bar chart's height attribute to the computed "barHeight" value *******************************/
     /**************************************************************************************************************************************/
-
+    rightSvg.attr('height', barHeight);
     // compute the height of the bar chart excluding margins
     let barHeightPadded = barHeight - (barMargin.top + barMargin.bottom);
 
@@ -122,7 +124,7 @@ function updateBars(data) {
     /************************* Hint: the parameter of updateBars called "data" may be useful                    ***************************/
     /************************* NOTE: Make sure to update the bars variable with your new selection              ***************************/
     /**************************************************************************************************************************************/
-    bars = undefined;
+    bars = rightSvg.selectAll('.bar').data(data);
 
     // enter the data and append a rectangle for each data element with the necessary attributes
     bars.enter()
@@ -133,11 +135,24 @@ function updateBars(data) {
                 /*****************************************************************************************************************************/
                 /***************************** TODO: Update the y, width, and height attributes of the bars **********************************/
                 /*****************************************************************************************************************************/
+                .attr('y', d => barYScale(d.actor))
+                .attr('width', d => barXScale(d.total_num_episodes))
+                .attr('height', barYScale.bandwidth())
                 .attr('fill', 'lightgrey')
                 /*****************************************************************************************************************************/
                 /***************************** EXTRA CREDIT (1): Add hover functionality to the bars  ****************************************/
                 /*****************************************************************************************************************************/
-
+                .on('mouseover', function(event, d) {
+                    d3.select(this).transition().attr('fill', 'grey');
+                    scatterTooltip.transition().style('opacity', 0.9);
+                    scatterTooltip.html(`Actor: ${d.actor}<br>Age: ${d.age}<br>Total Episodes: ${d.total_num_episodes}`)
+                        .style('left', (event.pageX + 5) + 'px')
+                        .style('top', (event.pageY - 28) + 'px');
+                })
+                .on('mouseout', function() {
+                    d3.select(this).transition().attr('fill', 'lightgrey');
+                    scatterTooltip.transition().style('opacity', 0);
+                });
     // remove the existing y axis
     d3.select('#y_axis').remove()
 
@@ -149,14 +164,21 @@ function updateBars(data) {
         .call(d3.axisLeft(barYScale).ticks(5));
 }
 
-function drawBarChart() {
+function drawBarChart(filteredCharacters = characters) {
     // call the updateBars function with the global actors variable
-    updateBars(actors)
+    let filteredActors = actors.filter(d => {
+        return filteredCharacters.some(c => c.played_by.includes(d.actor));
+    });
+    updateBars(filteredActors);
 
     let xAxisTransform = 'translate(' + barMargin.left + ',' + (barMargin.top) + ')';
     /**************************************************************************************************************************************/
     /****************************** TODO: Draw the x axis inside of a group using d3.axisTop and barXScale ********************************/
     /**************************************************************************************************************************************/
+    rightSvg.append('g')
+        .attr('class', 'x axis')
+        .attr('transform', xAxisTransform)
+        .call(d3.axisTop(barXScale).ticks(5));
 
     // add a label to the x axis by appending a text element
     rightSvg.append('g')
@@ -189,13 +211,14 @@ function isBrushed(extent, d) {
     /**************************************************************************************************************************************/
     /******** TODO: Return a boolean expression that is "true" if and only if the point "d" is within the brush selection *****************/
     /**************************************************************************************************************************************/
+    return brushRegionLeftX <= pointX && pointX <= brushRegionRightX && brushRegionTopY <= pointY && pointY <= brushRegionBottomY;
 }
 
 function drawScatterPlot(data) {    
     /**************************************************************************************************************************************/
     /****************************** EXTRA CREDIT (2): Remove all elements from the scatter plot *******************************************/
     /**************************************************************************************************************************************/
-
+    leftSvg.selectAll('*').remove();
     // create a brush object using d3.brush
     let brush = d3.brush()
                     // set the edges of the brush region (offset by the left and top margins)
@@ -209,7 +232,26 @@ function drawScatterPlot(data) {
                         /******** TODO: Create a function that sets the color of the selected points to the appropriate color using colorScale ****************/
                         /********       This function should set the color of points that were not selected to "lightgrey"                     ****************/
                         /**************************************************************************************************************************************/
-                        let colorHandler = undefined;
+                        let selection = event.selection;
+                        let brushed = d3.selectAll('circle')
+                            .filter(function () {
+                                let node = d3.select(this);
+                                return isBrushed(selection, {
+                                    age: node.attr('data-age'),
+                                    number_of_episodes: node.attr('data-episodes')
+                                });
+                            });
+                        
+                        let brushedData = brushed.data().map(function (d) {
+                            return {
+                                actor: d.actor,
+                                age: +d.age,
+                                total_num_episodes: +d.total_num_episodes
+                            };
+                        });
+                        updateBars(brushedData);
+                    });
+                    /*    let colorHandler = undefined;
                         
                         // select all of the dots on the scatter plot and set their fill style to colorHandler
                         d3.selectAll('.actorDot').style('fill', colorHandler)
@@ -224,12 +266,14 @@ function drawScatterPlot(data) {
                         
                         // update the bar chart with the filtered actors
                         updateBars(brushed_actors)
-                    })
+                    })*/
     
     /**************************************************************************************************************************************/
     /********************************* TODO: Call the brush within a group we append to the scatter plot **********************************/
     /**************************************************************************************************************************************/
-
+    leftSvg.append('g')
+        .attr('class', 'brush')
+        .call(brush);
     
     // create a group for each of the characters in our data object
     let characterGroup = leftSvg.selectAll('.characterGroup')
@@ -248,6 +292,11 @@ function drawScatterPlot(data) {
                                         /*************** TODO: Set the attributes of this object (name, actor, age, number_of_episodes, from) ****************/
                                         /*************** Hint: These attributes may rely on "d" or "e"                                        ****************/
                                         /*********************************************************************************************************************/
+                                        name: d.name,
+                                        actor: e,
+                                        age: actor_ages[e],
+                                        number_of_episodes: d.number_of_episodes,
+                                        from: d.from
                                     }
                                 })
                             })
@@ -262,19 +311,22 @@ function drawScatterPlot(data) {
                                         /***********************************************************************************************/
                                         /*************** TODO: Transition the radius of "this" dot to have a value of 6 ****************/
                                         /***********************************************************************************************/
-
+                                        d3.select(this).transition().attr('r', 6)
                                         // change the color of the tooltip background using colorScale and the from attribute of this dot
                                         scatterTooltip.style('background', colorScale(d.from))
                                         
                                         /***********************************************************************************************/
                                         /*************** TODO: Transition the opacity of the tooltip to have a value of .9 *************/
                                         /***********************************************************************************************/
-
+                                        scatterTooltip.transition().style('opacity', 0.9)
                                         /***********************************************************************************************/
                                         /***** TODO: Set the html of the tooltip to have a list of labels of the dot's attributes      */
                                         /***** TODO: Style the left of the tooltip to be the x position where the mouse event occurred */
                                         /***** TODO: Style the top of the tooltip to be the y position where the mouse event occurred  */
                                         /***********************************************************************************************/
+                                        scatterTooltip.html(`Actor: ${d.actor}<br>Age: ${d.age}<br>Number of Episodes: ${d.number_of_episodes}`)
+                                            .style('left', (event.pageX + 5) + 'px')
+                                            .style('top', (event.pageY - 28) + 'px');
                                     })
                                     // create an event handler that hides the tooltip when the user mouses away from the dot
                                     .on('mouseout', function(event){
@@ -289,7 +341,7 @@ function drawScatterPlot(data) {
                                     /***********************************************************************************************/
                                     /********** TODO: Set the color of the dots using colorScale according to the tv show **********/
                                     /***********************************************************************************************/
-                       
+                                    .attr('fill', d => colorScale(d.from))
     // draw the x axis inside of a group using d3.axisBottom and scatterXScale, set the number of ticks to 5
     let xAxisTransform = 'translate(' + scatterMargin.left + ',' + (scatterHeight - scatterMargin.bottom) + ')';
     leftSvg.append('g')
@@ -338,11 +390,47 @@ function makeVisualizations() {
     /*********** EXTRA CREDIT (2): Add options to the select for each of the tv shows in the show object defined on line 1 *******/
     /*********** EXTRA CREDIT (2): Add a label for the dropdown                                                            *******/
     /*****************************************************************************************************************************/
+
     let filterForm = undefined;
     let dropDown = undefined;
+
+    function addFilterForm() {
+        const form = d3.select('#form')
+            .append('form');
     
+        form.append('label')
+            .attr('for', 'showSelect')
+            .text('Filter by TV Show: ');
+    
+        const select = form.append('select')
+            .attr('id', 'showSelect')
+            .on('change', function () {
+                const selectedShow = d3.select(this).property('value');
+                filterData(selectedShow);
+            });
+    
+        select.selectAll('option')
+            .data(shows)
+            .enter()
+            .append('option')
+            .attr('value', d => d)
+            .text(d => d);
+    }
+
+    function filterData(show) {
+        let filteredCharacters = characters;
+        if (show !== "All") {
+            filteredCharacters = characters.filter(d => d.from === show);
+        }
+        drawScatterPlot(filteredCharacters);
+        drawBarChart(filteredCharacters);
+    }
+    
+    addFilterForm();
 
     // call functions to draw the scatter plot and bar chart for the first time
     drawScatterPlot(characters)
-    drawBarChart()
+    drawBarChart(characters)
+
+    
 }
